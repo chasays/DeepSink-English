@@ -1,0 +1,7 @@
+{
+  "name": "DeepSink English",
+  "description": "Immersive English language partner powered by Gemini 3 Pro. Features real-time personality switching, scene generation, and instant pronunciation correction.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
