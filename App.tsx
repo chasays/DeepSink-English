@@ -5,6 +5,8 @@ import { PersonaId, SceneId } from './types';
 import ShaderBackground from './components/ShaderBackground';
 import AudioVisualizer from './components/AudioVisualizer';
 import FAQSection from './components/FAQSection';
+import Fireworks from './components/Fireworks';
+import SessionResult from './components/SessionResult';
 import { createBlob, decodeAudioData, decode } from './utils/audioUtils';
 
 // --- Tool Definitions ---
@@ -47,6 +49,11 @@ const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Session Report State
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const [showFireworks, setShowFireworks] = useState(false);
   
   // Refs for Audio
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -168,9 +175,6 @@ const App: React.FC = () => {
                         const newPersonaId = (fc.args as any).personaId;
                         if (PERSONAS[newPersonaId]) {
                             setCurrentPersonaId(newPersonaId);
-                            // Note: Voice config changes usually require session restart or are fixed. 
-                            // For this MVP, we acknowledge the persona change logic in state, 
-                            // but Gemini decides to Act like them.
                             if (sessionPromiseRef.current) {
                                 sessionPromiseRef.current.then(session => {
                                     session.sendToolResponse({
@@ -265,16 +269,27 @@ const App: React.FC = () => {
   };
 
   const handleDisconnect = () => {
-      // There is no explicit .close() on the session object exposed in the guide?
-      // Actually guide says session.close() in rules. But connect returns a Promise<Session>.
+      // 1. Close Session
       if (sessionPromiseRef.current) {
-          // We can't cancel the promise easily, but we can stop audio
-          // Ideally we would await sessionPromiseRef.current then call .close(), 
-          // but for instant UI reaction we tear down audio first.
           sessionPromiseRef.current.then(s => s.close());
       }
       stopAudio();
       setIsConnected(false);
+
+      // 2. Trigger Analysis Flow
+      setIsAnalyzing(true);
+      
+      // Simulate API delay for analysis
+      setTimeout(() => {
+          setIsAnalyzing(false);
+          setShowFireworks(true);
+          setShowResult(true);
+      }, 2000);
+  };
+
+  const handleCloseResult = () => {
+      setShowResult(false);
+      setShowFireworks(false);
   };
 
   // --- Ambient Audio Management ---
@@ -285,10 +300,15 @@ const App: React.FC = () => {
        ambientAudioRef.current = null;
     }
 
-    if (scene.ambientSoundUrl && isConnected) {
+    // Only play ambient sound if we are connected OR if we are showing the result (to keep the vibe)
+    // But usually you might want silence on result. Let's keep it playing for immersion or stop it.
+    // The requirement says "background of the current exercise to do a speaking score generation".
+    // We'll keep it playing but lower volume if analyzing.
+    
+    if (scene.ambientSoundUrl && (isConnected || isAnalyzing || showResult)) {
        const audio = new Audio(scene.ambientSoundUrl);
        audio.loop = true;
-       audio.volume = 0.2; // Background level
+       audio.volume = showResult ? 0.1 : 0.2; // Lower volume during result
        audio.play().catch(e => console.warn("Autoplay blocked", e));
        ambientAudioRef.current = audio;
     }
@@ -296,7 +316,7 @@ const App: React.FC = () => {
     return () => {
         if (ambientAudioRef.current) ambientAudioRef.current.pause();
     };
-  }, [currentSceneId, isConnected]);
+  }, [currentSceneId, isConnected, isAnalyzing, showResult]);
 
 
   // --- Render ---
@@ -309,8 +329,14 @@ const App: React.FC = () => {
       {/* 1. Background Layer */}
       <ShaderBackground scene={currentScene} />
 
-      {/* 2. UI Overlay */}
-      <div className="relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide">
+      {/* 2. Fireworks Layer */}
+      {showFireworks && <Fireworks />}
+
+      {/* 3. Result Modal Layer */}
+      {showResult && <SessionResult onClose={handleCloseResult} />}
+
+      {/* 4. UI Overlay */}
+      <div className={`relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide transition-opacity duration-500 ${showResult ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
         
         {/* Header / Stats */}
         <div className="flex justify-between items-start shrink-0">
@@ -337,15 +363,27 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* Center Visualizer & Feedback */}
-        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected ? 'justify-center' : 'justify-start pt-10'}`}>
+        {/* Center Content */}
+        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected || isAnalyzing ? 'justify-center' : 'justify-start pt-10'}`}>
+            
+            {/* Error Message */}
             {error && (
                 <div className="bg-red-500/80 text-white px-6 py-3 rounded-lg backdrop-blur-md">
                     {error}
                 </div>
             )}
+
+            {/* Analysis Loading State */}
+            {isAnalyzing && (
+                 <div className="flex flex-col items-center gap-4 animate-fade-in">
+                    <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    <h2 className="text-2xl font-bold text-white">Generating Score...</h2>
+                    <p className="text-indigo-200 animate-pulse">Analyzing pronunciation & fluency</p>
+                 </div>
+            )}
             
-            {!isConnected && !error && (
+            {/* Landing Page Content */}
+            {!isConnected && !isAnalyzing && !error && (
                  <div className="w-full text-center space-y-4 animate-slide-up">
                     <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-200 via-white to-indigo-200 drop-shadow-lg">
                         DeepSink English
@@ -358,6 +396,7 @@ const App: React.FC = () => {
                  </div>
             )}
 
+            {/* Live Visualizer */}
             {isConnected && (
                 <div className="w-full max-w-2xl space-y-2">
                     {/* AI Voice Vis */}
@@ -381,8 +420,7 @@ const App: React.FC = () => {
 
         {/* Footer Controls */}
         <div className="flex justify-center items-center gap-6 pb-8 shrink-0">
-            {/* Start / Stop Button */}
-            {!isConnected ? (
+            {!isConnected && !isAnalyzing ? (
                 <div className="animate-float">
                   <button 
                       onClick={connectToGemini}
@@ -395,7 +433,7 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 rounded-full bg-white blur-lg opacity-40 group-hover:opacity-60 transition-opacity -z-10"></div>
                   </button>
                 </div>
-            ) : (
+            ) : isConnected ? (
                 <>
                     <button 
                         onClick={() => setIsMicOn(!isMicOn)}
@@ -414,7 +452,7 @@ const App: React.FC = () => {
                         End Session
                     </button>
                 </>
-            )}
+            ) : null}
         </div>
       </div>
     </div>
