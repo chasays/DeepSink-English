@@ -380,16 +380,18 @@ const App: React.FC = () => {
         <div className="flex justify-center items-center gap-6 pb-8">
             {/* Start / Stop Button */}
             {!isConnected ? (
-                <button 
-                    onClick={connectToGemini}
-                    className="group relative px-8 py-4 bg-white text-black font-bold rounded-full hover:scale-105 transition-all shadow-[0_0_40px_-10px_rgba(255,255,255,0.6)]"
-                >
-                    <span className="flex items-center gap-2">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                        Start Conversation
-                    </span>
-                    <div className="absolute inset-0 rounded-full bg-white blur-lg opacity-40 group-hover:opacity-60 transition-opacity -z-10"></div>
-                </button>
+                <div className="animate-float">
+                  <button 
+                      onClick={connectToGemini}
+                      className="group relative px-8 py-4 bg-white text-black font-bold rounded-full hover:scale-105 transition-all shadow-[0_0_40px_-10px_rgba(255,255,255,0.6)]"
+                  >
+                      <span className="flex items-center gap-2">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                          Start Conversation
+                      </span>
+                      <div className="absolute inset-0 rounded-full bg-white blur-lg opacity-40 group-hover:opacity-60 transition-opacity -z-10"></div>
+                  </button>
+                </div>
             ) : (
                 <>
                     <button 
