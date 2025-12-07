@@ -4,6 +4,7 @@ import { PERSONAS, SCENES } from './constants';
 import { PersonaId, SceneId } from './types';
 import ShaderBackground from './components/ShaderBackground';
 import AudioVisualizer from './components/AudioVisualizer';
+import FAQSection from './components/FAQSection';
 import { createBlob, decodeAudioData, decode } from './utils/audioUtils';
 
 // --- Tool Definitions ---
@@ -309,10 +310,10 @@ const App: React.FC = () => {
       <ShaderBackground scene={currentScene} />
 
       {/* 2. UI Overlay */}
-      <div className="relative z-10 w-full h-full flex flex-col justify-between p-6">
+      <div className="relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide">
         
         {/* Header / Stats */}
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start shrink-0">
             <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 flex items-center gap-4 animate-fade-in">
                 <img 
                    src={currentPersona.avatarUrl} 
@@ -337,7 +338,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Center Visualizer & Feedback */}
-        <div className="flex-1 flex flex-col justify-center items-center gap-8">
+        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected ? 'justify-center' : 'justify-start pt-10'}`}>
             {error && (
                 <div className="bg-red-500/80 text-white px-6 py-3 rounded-lg backdrop-blur-md">
                     {error}
@@ -345,13 +346,15 @@ const App: React.FC = () => {
             )}
             
             {!isConnected && !error && (
-                 <div className="text-center space-y-4 animate-slide-up">
+                 <div className="w-full text-center space-y-4 animate-slide-up">
                     <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-200 via-white to-indigo-200 drop-shadow-lg">
                         DeepSink English
                     </h1>
                     <p className="text-lg text-gray-300 max-w-md mx-auto">
                         Your immersive native partner. Choose a scenario or just start talking.
                     </p>
+                    
+                    <FAQSection />
                  </div>
             )}
 
@@ -377,7 +380,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Footer Controls */}
-        <div className="flex justify-center items-center gap-6 pb-8">
+        <div className="flex justify-center items-center gap-6 pb-8 shrink-0">
             {/* Start / Stop Button */}
             {!isConnected ? (
                 <div className="animate-float">
