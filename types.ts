@@ -39,3 +39,16 @@ export interface AudioVisualizerState {
   isTalking: boolean;
   volume: number;
 }
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
+}
+
+export interface SavedSession {
+  id: string;
+  date: string;
+  messages: ChatMessage[];
+  score?: any;
+}

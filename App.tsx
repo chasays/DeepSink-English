@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LiveServerMessage, FunctionDeclaration, Type } from "@google/genai";
 import { PERSONAS, SCENES } from './constants';
-import { PersonaId, SceneId } from './types';
+import { PersonaId, SceneId, ChatMessage, SavedSession } from './types';
 import ShaderBackground from './components/ShaderBackground';
 import AudioVisualizer from './components/AudioVisualizer';
 import FAQSection from './components/FAQSection';
 import Fireworks from './components/Fireworks';
 import SessionResult, { ScoreData } from './components/SessionResult';
+import TranscriptView from './components/TranscriptView';
+import HistoryDrawer from './components/HistoryDrawer';
 import { createBlob, decodeAudioData, decode } from './utils/audioUtils';
 import { geminiService } from './services/gemini';
 
@@ -56,6 +58,13 @@ const App: React.FC = () => {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Transcription & History State
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [liveInput, setLiveInput] = useState("");
+  const [liveOutput, setLiveOutput] = useState("");
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
   // Session Report State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResult, setShowResult] = useState(false);
@@ -74,6 +83,41 @@ const App: React.FC = () => {
   
   // Refs for Session & Transcript
   const transcriptLogRef = useRef<string>("");
+  const currentTurnInputRef = useRef<string>("");
+  const currentTurnOutputRef = useRef<string>("");
+
+  // --- Load History on Mount ---
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('deepsink_history');
+      if (saved) {
+        setSavedSessions(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn("Failed to load history", e);
+    }
+  }, []);
+
+  // --- Save History Helper ---
+  const saveSessionToHistory = (msgs: ChatMessage[], score?: ScoreData) => {
+    if (msgs.length === 0) return;
+    
+    const newSession: SavedSession = {
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      messages: msgs,
+      score: score
+    };
+
+    const updated = [newSession, ...savedSessions].slice(0, 20); // Keep last 20
+    setSavedSessions(updated);
+    localStorage.setItem('deepsink_history', JSON.stringify(updated));
+  };
+
+  const clearHistory = () => {
+    setSavedSessions([]);
+    localStorage.removeItem('deepsink_history');
+  };
 
   // --- Audio Setup & Teardown ---
   const stopAudio = useCallback(() => {
@@ -145,7 +189,12 @@ const App: React.FC = () => {
     try {
       setError(null);
       stopAudio(); // Cleanup previous if any
-      transcriptLogRef.current = ""; // Reset transcript
+      transcriptLogRef.current = ""; 
+      currentTurnInputRef.current = "";
+      currentTurnOutputRef.current = "";
+      setMessages([]);
+      setLiveInput("");
+      setLiveOutput("");
 
       // 1. Setup Audio Contexts
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -198,15 +247,53 @@ const App: React.FC = () => {
             }
         },
         onMessage: async (message: LiveServerMessage) => {
-             // Handle Transcript
+             // 1. Handle Transcription
+             
+             // User Turn Input
              if (message.serverContent?.inputTranscription?.text) {
-                 transcriptLogRef.current += `User: ${message.serverContent.inputTranscription.text}\n`;
-             }
-             if (message.serverContent?.outputTranscription?.text) {
-                 transcriptLogRef.current += `DeepSink: ${message.serverContent.outputTranscription.text}\n`;
+                 const text = message.serverContent.inputTranscription.text;
+                 currentTurnInputRef.current += text;
+                 setLiveInput(currentTurnInputRef.current);
+                 transcriptLogRef.current += `User: ${text}\n`;
+
+                 // If we were receiving AI output and now user talks, assume AI turn interrupted/done
+                 if (currentTurnOutputRef.current) {
+                     setMessages(prev => [...prev, { role: 'model', text: currentTurnOutputRef.current.trim(), timestamp: Date.now() }]);
+                     currentTurnOutputRef.current = "";
+                     setLiveOutput("");
+                 }
              }
 
-             // Handle Tools
+             // Model Turn Output
+             if (message.serverContent?.outputTranscription?.text) {
+                 const text = message.serverContent.outputTranscription.text;
+                 currentTurnOutputRef.current += text;
+                 setLiveOutput(currentTurnOutputRef.current);
+                 transcriptLogRef.current += `DeepSink: ${text}\n`;
+
+                 // If we were receiving User input and now AI talks, assume user turn done
+                 if (currentTurnInputRef.current) {
+                     setMessages(prev => [...prev, { role: 'user', text: currentTurnInputRef.current.trim(), timestamp: Date.now() }]);
+                     currentTurnInputRef.current = "";
+                     setLiveInput("");
+                 }
+             }
+
+             // Turn Complete (Explicit)
+             if (message.serverContent?.turnComplete) {
+                 if (currentTurnInputRef.current) {
+                     setMessages(prev => [...prev, { role: 'user', text: currentTurnInputRef.current.trim(), timestamp: Date.now() }]);
+                     currentTurnInputRef.current = "";
+                     setLiveInput("");
+                 }
+                 if (currentTurnOutputRef.current) {
+                     setMessages(prev => [...prev, { role: 'model', text: currentTurnOutputRef.current.trim(), timestamp: Date.now() }]);
+                     currentTurnOutputRef.current = "";
+                     setLiveOutput("");
+                 }
+             }
+
+             // 2. Handle Tools
              if (message.toolCall) {
                 for (const fc of message.toolCall.functionCalls) {
                     if (fc.name === 'changeScene') {
@@ -237,7 +324,7 @@ const App: React.FC = () => {
                 }
              }
 
-             // Handle Audio Output
+             // 3. Handle Audio Output
              const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
              if (base64Audio && outputAudioContextRef.current) {
                  const ctx = outputAudioContextRef.current;
@@ -267,7 +354,7 @@ const App: React.FC = () => {
                  sourcesRef.current.add(source);
              }
 
-             // Handle Interruption
+             // 4. Handle Interruption
              if (message.serverContent?.interrupted) {
                  sourcesRef.current.forEach(s => {
                     try { s.stop(); } catch(e) {}
@@ -303,26 +390,41 @@ const App: React.FC = () => {
       setIsAnalyzing(true);
       
       // 3. Generate Report via Service
+      let finalScore: ScoreData | null = null;
       if (!transcriptLogRef.current || transcriptLogRef.current.length < 50) {
-           setScoreData({
+           finalScore = {
             total: 80,
             fluency: 75,
             vocabulary: 80,
             nativeLike: 70,
             comment: "Keep practicing! The session was a bit too short for a full analysis, but you're doing great!"
-          });
+          };
       } else {
           const data = await geminiService.generateReport(transcriptLogRef.current);
           if (data) {
-             setScoreData(data);
+             finalScore = data;
           } else {
-             setScoreData({
+             finalScore = {
                  total: 0, fluency: 0, vocabulary: 0, nativeLike: 0,
                  comment: "Could not generate analysis due to a network error."
-             });
+             };
           }
       }
       
+      setScoreData(finalScore);
+      
+      // 4. Save to History
+      // Ensure we capture any pending partial transcripts
+      const finalMessages = [...messages];
+      if (liveInput) finalMessages.push({ role: 'user', text: liveInput, timestamp: Date.now() });
+      if (liveOutput) finalMessages.push({ role: 'model', text: liveOutput, timestamp: Date.now() });
+      
+      if (finalMessages.length > 0) {
+          saveSessionToHistory(finalMessages, finalScore || undefined);
+      }
+      setLiveInput("");
+      setLiveOutput("");
+
       setIsAnalyzing(false);
       setShowFireworks(true);
       setShowResult(true);
@@ -387,7 +489,15 @@ const App: React.FC = () => {
       {/* 3. Result Modal Layer */}
       {showResult && scoreData && <SessionResult data={scoreData} onClose={handleCloseResult} onDownloadTranscript={handleDownloadTranscript} />}
 
-      {/* 4. UI Overlay */}
+      {/* 4. History Drawer Layer */}
+      <HistoryDrawer isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} sessions={savedSessions} onClear={clearHistory} />
+
+      {/* 5. Transcript Overlay Layer */}
+      {(isConnected || isAnalyzing || showResult) && (
+        <TranscriptView messages={messages} liveInput={liveInput} liveOutput={liveOutput} />
+      )}
+
+      {/* 6. UI Overlay */}
       <div className={`relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide transition-opacity duration-500 ${showResult ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
         
         {/* Header / Stats */}
@@ -404,19 +514,32 @@ const App: React.FC = () => {
                 </div>
             </div>
             
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2 text-xs font-mono">
-                {isConnected ? (
-                    <span className="text-green-400 flex items-center gap-2">
-                        <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"/> LIVE
-                    </span>
-                ) : (
-                    <span className="text-gray-400">OFFLINE</span>
-                )}
+            <div className="flex gap-4">
+                {/* History Toggle */}
+                <button 
+                  onClick={() => setIsHistoryOpen(true)}
+                  className="bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-3 transition-all"
+                  title="View History"
+                >
+                    <svg className="w-5 h-5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </button>
+
+                <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-xs font-mono h-fit">
+                    {isConnected ? (
+                        <span className="text-green-400 flex items-center gap-2">
+                            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"/> LIVE
+                        </span>
+                    ) : (
+                        <span className="text-gray-400">OFFLINE</span>
+                    )}
+                </div>
             </div>
         </div>
 
         {/* Center Content */}
-        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected || isAnalyzing ? 'justify-center' : 'justify-start pt-10'}`}>
+        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected || isAnalyzing ? 'justify-center pl-80' : 'justify-start pt-10'}`}>
             
             {/* Error Message */}
             {error && (
