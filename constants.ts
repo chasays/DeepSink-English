@@ -112,7 +112,7 @@ export const SCENES: Record<SceneId, Scene> = {
     name: 'British Pub',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/431/1920/1080', // Dark interior
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/pub_ambient.ogg' // Hypothetical or reuse coffee shop
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/pub_ambient.ogg' 
   },
   [SceneId.OFFICE]: {
     id: SceneId.OFFICE,
@@ -127,5 +127,26 @@ export const SCENES: Record<SceneId, Scene> = {
     type: 'image',
     imageUrl: 'https://picsum.photos/id/352/1920/1080',
     ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/warehouse.ogg'
+  },
+  [SceneId.MARKET]: {
+    id: SceneId.MARKET,
+    name: 'Bustling Market',
+    type: 'image',
+    imageUrl: 'https://picsum.photos/seed/market123/1920/1080', // Seeded random for consistent "market" feel
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/crowds/battle_crowd_celebrate_stutter.ogg' // Simulates a busy, noisy crowd
+  },
+  [SceneId.LIBRARY]: {
+    id: SceneId.LIBRARY,
+    name: 'Quiet Library',
+    type: 'image',
+    imageUrl: 'https://picsum.photos/id/192/1920/1080', // Indoor/Architectural
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/foley/room_tone.ogg' // Very quiet room tone
+  },
+  [SceneId.FUTURISTIC]: {
+    id: SceneId.FUTURISTIC,
+    name: 'Neo Tokyo',
+    type: 'image',
+    imageUrl: 'https://picsum.photos/seed/future99/1920/1080',
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/sci_fi/scifi_drone_ambience.ogg'
   }
 };

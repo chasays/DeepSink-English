@@ -11,7 +11,10 @@ export enum SceneId {
   BEACH = 'BEACH',
   PUB = 'PUB',
   OFFICE = 'OFFICE',
-  GYM = 'GYM'
+  GYM = 'GYM',
+  MARKET = 'MARKET',
+  LIBRARY = 'LIBRARY',
+  FUTURISTIC = 'FUTURISTIC'
 }
 
 export interface Persona {

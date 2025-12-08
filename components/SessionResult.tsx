@@ -11,9 +11,10 @@ export interface ScoreData {
 interface SessionResultProps {
   data: ScoreData;
   onClose: () => void;
+  onDownloadTranscript: () => void;
 }
 
-const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data, onClose, onDownloadTranscript }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="relative w-full max-w-md bg-gray-900/90 border border-indigo-500/30 rounded-3xl overflow-hidden shadow-2xl animate-slide-up">
@@ -76,11 +77,15 @@ const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
 
           {/* Action Buttons */}
           <div className="w-full flex gap-3">
-             <button className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2">
+             <button 
+               onClick={onDownloadTranscript}
+               className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2"
+               title="Download conversation transcript"
+             >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Share
+                Transcript
              </button>
              <button 
                onClick={onClose}

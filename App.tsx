@@ -364,6 +364,21 @@ const App: React.FC = () => {
       setScoreData(null);
   };
 
+  const handleDownloadTranscript = () => {
+      const text = transcriptLogRef.current;
+      if (!text) return;
+      
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `deepsink-transcript-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
   // --- Ambient Audio Management ---
   useEffect(() => {
     const scene = SCENES[currentSceneId];
@@ -400,7 +415,7 @@ const App: React.FC = () => {
       {showFireworks && <Fireworks />}
 
       {/* 3. Result Modal Layer */}
-      {showResult && scoreData && <SessionResult data={scoreData} onClose={handleCloseResult} />}
+      {showResult && scoreData && <SessionResult data={scoreData} onClose={handleCloseResult} onDownloadTranscript={handleDownloadTranscript} />}
 
       {/* 4. UI Overlay */}
       <div className={`relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide transition-opacity duration-500 ${showResult ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
