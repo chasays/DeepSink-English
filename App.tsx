@@ -325,33 +325,54 @@ const App: React.FC = () => {
              }
 
              // 3. Handle Audio Output
-             const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+             // Try multiple possible paths for audio data
+             let base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+             
+             // If not found, try alternative paths
+             if (!base64Audio) {
+                 base64Audio = message.serverContent?.modelTurn?.parts?.find?.(part => part.inlineData?.data)?.inlineData?.data;
+             }
+             if (!base64Audio) {
+                 base64Audio = message.response?.modelTurn?.parts[0]?.inlineData?.data;
+             }
+             if (!base64Audio) {
+                 base64Audio = message.data?.modelTurn?.parts[0]?.inlineData?.data;
+             }
+             
              if (base64Audio && outputAudioContextRef.current) {
-                 const ctx = outputAudioContextRef.current;
-                 nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-                 
-                 const audioBuffer = await decodeAudioData(
-                     decode(base64Audio),
-                     ctx,
-                     24000,
-                     1
-                 );
-                 
-                 const source = ctx.createBufferSource();
-                 source.buffer = audioBuffer;
-                 const gain = ctx.createGain();
-                 gain.gain.value = 1.2; 
-                 
-                 source.connect(gain);
-                 gain.connect(ctx.destination);
-                 
-                 source.addEventListener('ended', () => {
-                     sourcesRef.current.delete(source);
-                 });
-                 
-                 source.start(nextStartTimeRef.current);
-                 nextStartTimeRef.current += audioBuffer.duration;
-                 sourcesRef.current.add(source);
+                 try {
+                     const ctx = outputAudioContextRef.current;
+                     nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
+                     
+                     const audioBuffer = await decodeAudioData(
+                         decode(base64Audio),
+                         ctx,
+                         24000,
+                         1
+                     );
+                     
+                     const source = ctx.createBufferSource();
+                     source.buffer = audioBuffer;
+                     const gain = ctx.createGain();
+                     gain.gain.value = 1.2; 
+                     
+                     source.connect(gain);
+                     gain.connect(ctx.destination);
+                     
+                     source.addEventListener('ended', () => {
+                         sourcesRef.current.delete(source);
+                     });
+                     
+                     source.start(nextStartTimeRef.current);
+                     nextStartTimeRef.current += audioBuffer.duration;
+                     sourcesRef.current.add(source);
+                     
+                     console.log("Playing AI audio");
+                 } catch (audioError) {
+                     console.error("Error playing audio:", audioError);
+                 }
+             } else if (base64Audio) {
+                 console.warn("Audio data found but output context not available");
              }
 
              // 4. Handle Interruption
