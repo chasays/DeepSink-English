@@ -1,19 +1,19 @@
 import React from 'react';
 
-export interface ScoreData {
-  total: number;
-  fluency: number;
-  vocabulary: number;
-  nativeLike: number;
-  comment: string;
-}
-
 interface SessionResultProps {
-  data: ScoreData;
   onClose: () => void;
 }
 
-const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ onClose }) => {
+  // Mock data for the demo - normally this would come from the AI analysis
+  const score = {
+    total: 87,
+    fluency: 92,
+    vocabulary: 84,
+    nativeLike: 85,
+    comment: "Incredible progress! You sounded very natural in the coffee shop scenario. Your intonation on questions was perfect. Watch out for the 'th' sound in 'think', but otherwise, excellent flow!"
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="relative w-full max-w-md bg-gray-900/90 border border-indigo-500/30 rounded-3xl overflow-hidden shadow-2xl animate-slide-up">
@@ -36,13 +36,13 @@ const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
                 strokeWidth="12" 
                 fill="transparent" 
                 strokeDasharray="440"
-                strokeDashoffset={440 - (440 * data.total) / 100}
+                strokeDashoffset={440 - (440 * score.total) / 100}
                 strokeLinecap="round"
                 className="transition-all duration-1000 ease-out"
               />
             </svg>
             <div className="flex flex-col items-center">
-              <span className="text-5xl font-bold text-white">{data.total}</span>
+              <span className="text-5xl font-bold text-white">{score.total}</span>
               <span className="text-sm text-gray-400">/ 100</span>
             </div>
           </div>
@@ -51,15 +51,15 @@ const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
           <div className="w-full grid grid-cols-3 gap-4 mb-8">
             <div className="bg-white/5 rounded-xl p-3 flex flex-col items-center">
               <span className="text-xs text-gray-400 mb-1">Fluency</span>
-              <span className="text-xl font-bold text-emerald-400">{data.fluency}%</span>
+              <span className="text-xl font-bold text-emerald-400">{score.fluency}%</span>
             </div>
             <div className="bg-white/5 rounded-xl p-3 flex flex-col items-center">
               <span className="text-xs text-gray-400 mb-1">Vocab</span>
-              <span className="text-xl font-bold text-blue-400">{data.vocabulary}%</span>
+              <span className="text-xl font-bold text-blue-400">{score.vocabulary}%</span>
             </div>
             <div className="bg-white/5 rounded-xl p-3 flex flex-col items-center">
               <span className="text-xs text-gray-400 mb-1">Vibe</span>
-              <span className="text-xl font-bold text-purple-400">{data.nativeLike}%</span>
+              <span className="text-xl font-bold text-purple-400">{score.nativeLike}%</span>
             </div>
           </div>
 
@@ -70,7 +70,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data, onClose }) => {
               <span className="text-xs font-bold text-indigo-300 uppercase">AI Feedback</span>
             </div>
             <p className="text-sm text-gray-300 leading-relaxed">
-              "{data.comment}"
+              "{score.comment}"
             </p>
           </div>
 

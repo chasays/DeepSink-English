@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type, Schema } from "@google/genai";
 import { PERSONAS, SCENES } from './constants';
 import { PersonaId, SceneId } from './types';
 import ShaderBackground from './components/ShaderBackground';
 import AudioVisualizer from './components/AudioVisualizer';
 import FAQSection from './components/FAQSection';
 import Fireworks from './components/Fireworks';
-import SessionResult from './components/SessionResult';
+import SessionResult, { ScoreData } from './components/SessionResult';
 import { createBlob, decodeAudioData, decode } from './utils/audioUtils';
 
 // --- Tool Definitions ---
@@ -54,6 +54,7 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
+  const [scoreData, setScoreData] = useState<ScoreData | null>(null);
   
   // Refs for Audio
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -64,9 +65,10 @@ const App: React.FC = () => {
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-
-  // Refs for Session
+  
+  // Refs for Session & Transcript
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
+  const transcriptLogRef = useRef<string>("");
 
   // --- Audio Setup & Teardown ---
   const stopAudio = useCallback(() => {
@@ -102,6 +104,7 @@ const App: React.FC = () => {
     try {
       setError(null);
       stopAudio(); // Cleanup previous if any
+      transcriptLogRef.current = ""; // Reset transcript
 
       // 1. Setup Audio Contexts
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -151,6 +154,14 @@ const App: React.FC = () => {
             }
           },
           onmessage: async (message: LiveServerMessage) => {
+             // Handle Transcript
+             if (message.serverContent?.inputTranscription?.text) {
+                 transcriptLogRef.current += `User: ${message.serverContent.inputTranscription.text}\n`;
+             }
+             if (message.serverContent?.outputTranscription?.text) {
+                 transcriptLogRef.current += `DeepSink: ${message.serverContent.outputTranscription.text}\n`;
+             }
+
              // Handle Tools
              if (message.toolCall) {
                 for (const fc of message.toolCall.functionCalls) {
@@ -158,7 +169,6 @@ const App: React.FC = () => {
                         const newSceneId = (fc.args as any).sceneId;
                         if (SCENES[newSceneId]) {
                             setCurrentSceneId(newSceneId);
-                            // Send Response
                             if (sessionPromiseRef.current) {
                                 sessionPromiseRef.current.then(session => {
                                     session.sendToolResponse({
@@ -207,7 +217,6 @@ const App: React.FC = () => {
                  const source = ctx.createBufferSource();
                  source.buffer = audioBuffer;
                  const gain = ctx.createGain();
-                 // Slight boost as raw PCM can be quiet
                  gain.gain.value = 1.2; 
                  
                  source.connect(gain);
@@ -241,6 +250,8 @@ const App: React.FC = () => {
         },
         config: {
           responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {}, // Enable user transcription
+          outputAudioTranscription: {}, // Enable model transcription
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: currentPersona.voiceName } },
           },
@@ -259,7 +270,6 @@ const App: React.FC = () => {
         }
       };
 
-      // Store promise
       sessionPromiseRef.current = ai.live.connect(config);
 
     } catch (e) {
@@ -268,7 +278,68 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDisconnect = () => {
+  const generateReport = async () => {
+      if (!transcriptLogRef.current || transcriptLogRef.current.length < 50) {
+          // Fallback if not enough data
+          setScoreData({
+            total: 80,
+            fluency: 75,
+            vocabulary: 80,
+            nativeLike: 70,
+            comment: "Keep practicing! The session was a bit too short for a full analysis, but you're doing great!"
+          });
+          return;
+      }
+
+      try {
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: `Analyze the following transcript between an English learner (User) and an AI tutor (DeepSink).
+              
+              TRANSCRIPT:
+              ${transcriptLogRef.current}
+              
+              TASK:
+              Act as an encouraging but professional IELTS/TOEFL examiner. Evaluate the User's performance.
+              
+              OUTPUT SCHEMA:
+              Return a JSON object with:
+              - total: number (0-100 overall score)
+              - fluency: number (0-100, flow and speed)
+              - vocabulary: number (0-100, word choice and variety)
+              - nativeLike: number (0-100, idiomatic usage and vibe)
+              - comment: string (Maximum 2 sentences. A specific, warm, and constructive observation about their speaking)`,
+              config: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                      type: Type.OBJECT,
+                      properties: {
+                          total: { type: Type.NUMBER },
+                          fluency: { type: Type.NUMBER },
+                          vocabulary: { type: Type.NUMBER },
+                          nativeLike: { type: Type.NUMBER },
+                          comment: { type: Type.STRING },
+                      },
+                      required: ["total", "fluency", "vocabulary", "nativeLike", "comment"]
+                  }
+              }
+          });
+          
+          if (response.text) {
+              const data = JSON.parse(response.text);
+              setScoreData(data);
+          }
+      } catch (e) {
+          console.error("Analysis failed", e);
+          setScoreData({
+             total: 0, fluency: 0, vocabulary: 0, nativeLike: 0,
+             comment: "Could not generate analysis due to a network error."
+          });
+      }
+  };
+
+  const handleDisconnect = async () => {
       // 1. Close Session
       if (sessionPromiseRef.current) {
           sessionPromiseRef.current.then(s => s.close());
@@ -279,17 +350,18 @@ const App: React.FC = () => {
       // 2. Trigger Analysis Flow
       setIsAnalyzing(true);
       
-      // Simulate API delay for analysis
-      setTimeout(() => {
-          setIsAnalyzing(false);
-          setShowFireworks(true);
-          setShowResult(true);
-      }, 2000);
+      // 3. Generate Report via Gemini Flash
+      await generateReport();
+      
+      setIsAnalyzing(false);
+      setShowFireworks(true);
+      setShowResult(true);
   };
 
   const handleCloseResult = () => {
       setShowResult(false);
       setShowFireworks(false);
+      setScoreData(null);
   };
 
   // --- Ambient Audio Management ---
@@ -300,15 +372,10 @@ const App: React.FC = () => {
        ambientAudioRef.current = null;
     }
 
-    // Only play ambient sound if we are connected OR if we are showing the result (to keep the vibe)
-    // But usually you might want silence on result. Let's keep it playing for immersion or stop it.
-    // The requirement says "background of the current exercise to do a speaking score generation".
-    // We'll keep it playing but lower volume if analyzing.
-    
     if (scene.ambientSoundUrl && (isConnected || isAnalyzing || showResult)) {
        const audio = new Audio(scene.ambientSoundUrl);
        audio.loop = true;
-       audio.volume = showResult ? 0.1 : 0.2; // Lower volume during result
+       audio.volume = showResult ? 0.1 : 0.2; 
        audio.play().catch(e => console.warn("Autoplay blocked", e));
        ambientAudioRef.current = audio;
     }
@@ -333,7 +400,7 @@ const App: React.FC = () => {
       {showFireworks && <Fireworks />}
 
       {/* 3. Result Modal Layer */}
-      {showResult && <SessionResult onClose={handleCloseResult} />}
+      {showResult && scoreData && <SessionResult data={scoreData} onClose={handleCloseResult} />}
 
       {/* 4. UI Overlay */}
       <div className={`relative z-10 w-full h-full flex flex-col justify-between p-6 overflow-y-auto scrollbar-hide transition-opacity duration-500 ${showResult ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
