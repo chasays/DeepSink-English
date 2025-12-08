@@ -53,6 +53,13 @@ const App: React.FC = () => {
   const [isMicOn, setIsMicOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // UI State
+  const [isPersonaMenuOpen, setIsPersonaMenuOpen] = useState(false);
+
+  // Voice Activity State
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+  
   // Image Analysis State
   const [imageContext, setImageContext] = useState<string | null>(null);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -77,6 +84,9 @@ const App: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null); // For VAD
+  const volumeIntervalRef = useRef<number>(0);
+  
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -121,6 +131,13 @@ const App: React.FC = () => {
 
   // --- Audio Setup & Teardown ---
   const stopAudio = useCallback(() => {
+    // Clear Intervals
+    if (volumeIntervalRef.current) {
+        cancelAnimationFrame(volumeIntervalRef.current);
+        volumeIntervalRef.current = 0;
+    }
+    
+    // Stop Nodes
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -128,6 +145,10 @@ const App: React.FC = () => {
     if (sourceRef.current) {
       sourceRef.current.disconnect();
       sourceRef.current = null;
+    }
+    if (analyserRef.current) {
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -146,7 +167,25 @@ const App: React.FC = () => {
         try { source.stop(); } catch(e) {}
     });
     sourcesRef.current.clear();
+    setIsAiSpeaking(false);
+    setIsUserSpeaking(false);
   }, []);
+
+  // --- Persona Switching ---
+  const handlePersonaSelect = (pid: PersonaId) => {
+      setIsPersonaMenuOpen(false);
+      if (currentPersonaId === pid) return;
+      
+      setCurrentPersonaId(pid);
+      
+      // If live, we should probably restart to apply the new voice config
+      if (isConnected) {
+          handleDisconnect().then(() => {
+             // Optional: Auto-reconnect or just let user start again
+             // For now, let's let the user start again to avoid state complexity
+          });
+      }
+  };
 
   // --- Image Analysis ---
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,6 +268,27 @@ const App: React.FC = () => {
               const source = inputAudioContextRef.current.createMediaStreamSource(streamRef.current);
               sourceRef.current = source;
               
+              // VAD Setup (User Volume)
+              const analyser = inputAudioContextRef.current.createAnalyser();
+              analyser.fftSize = 256;
+              source.connect(analyser);
+              analyserRef.current = analyser;
+              
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              const checkVolume = () => {
+                 if (!analyserRef.current || !isMicOn) {
+                     setIsUserSpeaking(false);
+                 } else {
+                     analyserRef.current.getByteFrequencyData(dataArray);
+                     const sum = dataArray.reduce((a,b) => a + b, 0);
+                     const avg = sum / dataArray.length;
+                     // Threshold for "speaking"
+                     setIsUserSpeaking(avg > 15);
+                 }
+                 volumeIntervalRef.current = requestAnimationFrame(checkVolume);
+              };
+              checkVolume();
+              
               const processor = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
               processorRef.current = processor;
 
@@ -247,50 +307,57 @@ const App: React.FC = () => {
             }
         },
         onMessage: async (message: LiveServerMessage) => {
+             const serverContent = message.serverContent;
+             
+             // --- HELPER: Flush User Turn ---
+             // Commits current accumulation to history and clears live view
+             const flushUserTurn = () => {
+                 const text = currentTurnInputRef.current.trim();
+                 if (text) {
+                     setMessages(prev => [...prev, { role: 'user', text, timestamp: Date.now() }]);
+                 }
+                 currentTurnInputRef.current = "";
+                 setLiveInput("");
+             };
+
+             // --- HELPER: Flush AI Turn ---
+             const flushAiTurn = () => {
+                 const text = currentTurnOutputRef.current.trim();
+                 if (text) {
+                     setMessages(prev => [...prev, { role: 'model', text, timestamp: Date.now() }]);
+                 }
+                 currentTurnOutputRef.current = "";
+                 setLiveOutput("");
+             };
+
              // 1. Handle Transcription
              
              // User Turn Input
-             if (message.serverContent?.inputTranscription?.text) {
-                 const text = message.serverContent.inputTranscription.text;
+             if (serverContent?.inputTranscription?.text) {
+                 // Implicit switch: If AI was talking, finish AI turn
+                 if (currentTurnOutputRef.current) flushAiTurn();
+
+                 const text = serverContent.inputTranscription.text;
                  currentTurnInputRef.current += text;
                  setLiveInput(currentTurnInputRef.current);
                  transcriptLogRef.current += `User: ${text}\n`;
-
-                 // If we were receiving AI output and now user talks, assume AI turn interrupted/done
-                 if (currentTurnOutputRef.current) {
-                     setMessages(prev => [...prev, { role: 'model', text: currentTurnOutputRef.current.trim(), timestamp: Date.now() }]);
-                     currentTurnOutputRef.current = "";
-                     setLiveOutput("");
-                 }
              }
 
              // Model Turn Output
-             if (message.serverContent?.outputTranscription?.text) {
-                 const text = message.serverContent.outputTranscription.text;
+             if (serverContent?.outputTranscription?.text) {
+                 // Implicit switch: If User was talking, finish User turn
+                 if (currentTurnInputRef.current) flushUserTurn();
+
+                 const text = serverContent.outputTranscription.text;
                  currentTurnOutputRef.current += text;
                  setLiveOutput(currentTurnOutputRef.current);
                  transcriptLogRef.current += `DeepSink: ${text}\n`;
-
-                 // If we were receiving User input and now AI talks, assume user turn done
-                 if (currentTurnInputRef.current) {
-                     setMessages(prev => [...prev, { role: 'user', text: currentTurnInputRef.current.trim(), timestamp: Date.now() }]);
-                     currentTurnInputRef.current = "";
-                     setLiveInput("");
-                 }
              }
 
              // Turn Complete (Explicit)
-             if (message.serverContent?.turnComplete) {
-                 if (currentTurnInputRef.current) {
-                     setMessages(prev => [...prev, { role: 'user', text: currentTurnInputRef.current.trim(), timestamp: Date.now() }]);
-                     currentTurnInputRef.current = "";
-                     setLiveInput("");
-                 }
-                 if (currentTurnOutputRef.current) {
-                     setMessages(prev => [...prev, { role: 'model', text: currentTurnOutputRef.current.trim(), timestamp: Date.now() }]);
-                     currentTurnOutputRef.current = "";
-                     setLiveOutput("");
-                 }
+             if (serverContent?.turnComplete) {
+                 flushUserTurn();
+                 flushAiTurn();
              }
 
              // 2. Handle Tools
@@ -325,18 +392,10 @@ const App: React.FC = () => {
              }
 
              // 3. Handle Audio Output
-             // Try multiple possible paths for audio data
-             let base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+             let base64Audio = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
              
-             // If not found, try alternative paths
              if (!base64Audio) {
-                 base64Audio = message.serverContent?.modelTurn?.parts?.find?.(part => part.inlineData?.data)?.inlineData?.data;
-             }
-             if (!base64Audio) {
-                 base64Audio = message.response?.modelTurn?.parts[0]?.inlineData?.data;
-             }
-             if (!base64Audio) {
-                 base64Audio = message.data?.modelTurn?.parts[0]?.inlineData?.data;
+                 base64Audio = serverContent?.modelTurn?.parts?.find?.(part => part.inlineData?.data)?.inlineData?.data;
              }
              
              if (base64Audio && outputAudioContextRef.current) {
@@ -361,37 +420,46 @@ const App: React.FC = () => {
                      
                      source.addEventListener('ended', () => {
                          sourcesRef.current.delete(source);
+                         // Check if still speaking
+                         if (sourcesRef.current.size === 0) setIsAiSpeaking(false);
                      });
                      
                      source.start(nextStartTimeRef.current);
                      nextStartTimeRef.current += audioBuffer.duration;
                      sourcesRef.current.add(source);
+                     setIsAiSpeaking(true);
                      
-                     console.log("Playing AI audio");
                  } catch (audioError) {
                      console.error("Error playing audio:", audioError);
                  }
-             } else if (base64Audio) {
-                 console.warn("Audio data found but output context not available");
              }
 
              // 4. Handle Interruption
-             if (message.serverContent?.interrupted) {
+             if (serverContent?.interrupted) {
                  sourcesRef.current.forEach(s => {
                     try { s.stop(); } catch(e) {}
                  });
                  sourcesRef.current.clear();
                  nextStartTimeRef.current = 0;
+                 setIsAiSpeaking(false);
+                 
+                 // If interrupted, we might want to flush partial output or just clear it?
+                 // Usually interrupted means AI stopped. User might be talking.
+                 if (currentTurnOutputRef.current) flushAiTurn();
              }
         },
         onClose: () => {
             console.log("Session closed");
             setIsConnected(false);
+            setIsAiSpeaking(false);
+            setIsUserSpeaking(false);
         },
         onError: (e) => {
             console.error("Session error", e);
             setError("Connection error. Please refresh.");
             setIsConnected(false);
+            setIsAiSpeaking(false);
+            setIsUserSpeaking(false);
         }
       });
 
@@ -437,8 +505,13 @@ const App: React.FC = () => {
       // 4. Save to History
       // Ensure we capture any pending partial transcripts
       const finalMessages = [...messages];
-      if (liveInput) finalMessages.push({ role: 'user', text: liveInput, timestamp: Date.now() });
-      if (liveOutput) finalMessages.push({ role: 'model', text: liveOutput, timestamp: Date.now() });
+      
+      // IMPORTANT: Use Ref for disconnect logic as state might be slighty behind in async flow or we want to capture what's in buffer
+      if (currentTurnInputRef.current) finalMessages.push({ role: 'user', text: currentTurnInputRef.current.trim(), timestamp: Date.now() });
+      else if (liveInput) finalMessages.push({ role: 'user', text: liveInput, timestamp: Date.now() });
+
+      if (currentTurnOutputRef.current) finalMessages.push({ role: 'model', text: currentTurnOutputRef.current.trim(), timestamp: Date.now() });
+      else if (liveOutput) finalMessages.push({ role: 'model', text: liveOutput, timestamp: Date.now() });
       
       if (finalMessages.length > 0) {
           saveSessionToHistory(finalMessages, finalScore || undefined);
@@ -498,6 +571,9 @@ const App: React.FC = () => {
   const currentScene = SCENES[currentSceneId];
   const currentPersona = PERSONAS[currentPersonaId];
 
+  // Logic to show transcript: if we have history OR we are connected OR analyzing OR showing result
+  const showTranscript = (messages.length > 0 || liveInput || liveOutput) || isConnected || isAnalyzing || showResult;
+
   return (
     <div className="relative w-full h-screen overflow-hidden text-white selection:bg-indigo-500/30">
       
@@ -514,7 +590,7 @@ const App: React.FC = () => {
       <HistoryDrawer isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} sessions={savedSessions} onClear={clearHistory} />
 
       {/* 5. Transcript Overlay Layer */}
-      {(isConnected || isAnalyzing || showResult) && (
+      {showTranscript && (
         <TranscriptView messages={messages} liveInput={liveInput} liveOutput={liveOutput} />
       )}
 
@@ -523,16 +599,46 @@ const App: React.FC = () => {
         
         {/* Header / Stats */}
         <div className="flex justify-between items-start shrink-0">
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 flex items-center gap-4 animate-fade-in">
-                <img 
-                   src={currentPersona.avatarUrl} 
-                   alt={currentPersona.name} 
-                   className="w-12 h-12 rounded-full border-2 border-indigo-400"
-                />
-                <div>
-                    <h2 className="font-bold text-lg leading-tight">{currentPersona.name}</h2>
-                    <p className="text-xs text-indigo-200">{currentPersona.role}</p>
-                </div>
+            {/* Persona Switcher */}
+            <div className="relative">
+                <button 
+                  onClick={() => setIsPersonaMenuOpen(!isPersonaMenuOpen)}
+                  className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 flex items-center gap-4 animate-fade-in hover:bg-black/60 transition-colors text-left"
+                >
+                    <img 
+                    src={currentPersona.avatarUrl} 
+                    alt={currentPersona.name} 
+                    className="w-12 h-12 rounded-full border-2 border-indigo-400"
+                    />
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h2 className="font-bold text-lg leading-tight">{currentPersona.name}</h2>
+                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                        <p className="text-xs text-indigo-200">{currentPersona.role}</p>
+                    </div>
+                </button>
+                
+                {/* Persona Dropdown */}
+                {isPersonaMenuOpen && (
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-gray-900/90 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50">
+                        {Object.values(PERSONAS).map((p) => (
+                            <button
+                                key={p.id}
+                                onClick={() => handlePersonaSelect(p.id)}
+                                className={`w-full p-3 flex items-center gap-3 hover:bg-white/10 transition-colors ${currentPersonaId === p.id ? 'bg-white/10 border-l-4 border-indigo-500' : ''}`}
+                            >
+                                <img src={p.avatarUrl} className="w-8 h-8 rounded-full" />
+                                <div className="text-left">
+                                    <div className="font-bold text-sm">{p.name}</div>
+                                    <div className="text-xs text-gray-400">{p.role}</div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
             
             <div className="flex gap-4">
@@ -616,18 +722,18 @@ const App: React.FC = () => {
             {isConnected && (
                 <div className="w-full max-w-2xl space-y-2">
                     {/* AI Voice Vis */}
-                    <div className="flex items-center gap-4">
+                    <div className={`flex items-center gap-4 transition-opacity duration-300 ${isAiSpeaking ? 'opacity-100' : 'opacity-0'}`}>
                         <span className="text-xs font-mono text-indigo-300 w-12 text-right">SINK</span>
                         <div className="flex-1 h-12 bg-black/30 backdrop-blur-sm rounded-lg border border-indigo-500/30 overflow-hidden relative">
-                             <AudioVisualizer isPlaying={isConnected} color="#818CF8" />
+                             <AudioVisualizer isPlaying={isAiSpeaking} color="#818CF8" />
                         </div>
                     </div>
                     
                     {/* User Voice Vis */}
-                    <div className="flex items-center gap-4">
+                    <div className={`flex items-center gap-4 transition-opacity duration-300 ${isUserSpeaking ? 'opacity-100' : 'opacity-0'}`}>
                         <span className="text-xs font-mono text-emerald-300 w-12 text-right">YOU</span>
                         <div className="flex-1 h-12 bg-black/30 backdrop-blur-sm rounded-lg border border-emerald-500/30 overflow-hidden relative">
-                             <AudioVisualizer isPlaying={isConnected && isMicOn} color="#34D399" />
+                             <AudioVisualizer isPlaying={isUserSpeaking} color="#34D399" />
                         </div>
                     </div>
                 </div>
