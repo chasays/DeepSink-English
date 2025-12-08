@@ -17,18 +17,20 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, liveInput, li
   }, [messages, liveInput, liveOutput]);
 
   return (
-    <div className="absolute top-20 bottom-32 left-4 w-80 z-20 pointer-events-auto">
+    <div className="absolute z-20 pointer-events-auto 
+      left-4 right-4 bottom-32 h-[40vh]
+      md:left-4 md:right-auto md:top-20 md:bottom-32 md:w-80 md:h-auto">
       <div className="w-full h-full flex flex-col justify-end">
         <div 
           ref={scrollRef}
-          className="max-h-full overflow-y-auto scrollbar-hide space-y-3 p-4 bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl mask-image-gradient"
+          className="max-h-full overflow-y-auto scrollbar-hide space-y-3 p-4 bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl mask-image-gradient shadow-xl"
         >
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div 
                 className={`max-w-[90%] p-3 rounded-2xl text-sm leading-relaxed ${
                   msg.role === 'user' 
-                    ? 'bg-indigo-500/20 text-indigo-100 rounded-tr-none border border-indigo-500/30' 
+                    ? 'bg-indigo-500/30 text-indigo-100 rounded-tr-none border border-indigo-500/30' 
                     : 'bg-white/10 text-gray-100 rounded-tl-none border border-white/10'
                 }`}
               >
@@ -50,7 +52,7 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, liveInput, li
           {/* Live Input (User) */}
           {liveInput && (
             <div className="flex flex-col items-end animate-fade-in">
-               <div className="max-w-[90%] p-3 rounded-2xl rounded-tr-none bg-indigo-500/20 text-indigo-100 border border-indigo-500/30 text-sm leading-relaxed opacity-80">
+               <div className="max-w-[90%] p-3 rounded-2xl rounded-tr-none bg-indigo-500/30 text-indigo-100 border border-indigo-500/30 text-sm leading-relaxed opacity-80">
                 {liveInput}
                 <span className="inline-block w-1.5 h-3 ml-1 bg-indigo-400/50 animate-pulse"/>
               </div>

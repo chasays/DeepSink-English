@@ -539,7 +539,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Center Content */}
-        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected || isAnalyzing ? 'justify-center pl-80' : 'justify-start pt-10'}`}>
+        <div className={`flex-1 flex flex-col items-center gap-8 ${isConnected || isAnalyzing ? 'justify-start pt-20 md:justify-center md:pt-0 md:pl-80' : 'justify-start pt-10'}`}>
             
             {/* Error Message */}
             {error && (
