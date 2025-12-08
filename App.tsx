@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type, Schema } from "@google/genai";
+import { LiveServerMessage, FunctionDeclaration, Type } from "@google/genai";
 import { PERSONAS, SCENES } from './constants';
 import { PersonaId, SceneId } from './types';
 import ShaderBackground from './components/ShaderBackground';
@@ -8,6 +8,7 @@ import FAQSection from './components/FAQSection';
 import Fireworks from './components/Fireworks';
 import SessionResult, { ScoreData } from './components/SessionResult';
 import { createBlob, decodeAudioData, decode } from './utils/audioUtils';
+import { geminiService } from './services/gemini';
 
 // --- Tool Definitions ---
 const changeSceneFunction: FunctionDeclaration = {
@@ -50,6 +51,11 @@ const App: React.FC = () => {
   const [isMicOn, setIsMicOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // Image Analysis State
+  const [imageContext, setImageContext] = useState<string | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Session Report State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResult, setShowResult] = useState(false);
@@ -67,7 +73,6 @@ const App: React.FC = () => {
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   
   // Refs for Session & Transcript
-  const sessionPromiseRef = useRef<Promise<any> | null>(null);
   const transcriptLogRef = useRef<string>("");
 
   // --- Audio Setup & Teardown ---
@@ -99,6 +104,42 @@ const App: React.FC = () => {
     sourcesRef.current.clear();
   }, []);
 
+  // --- Image Analysis ---
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingImage(true);
+    setError(null);
+    setImageContext(null);
+
+    try {
+        // Convert to Base64
+        const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = reader.result as string;
+                // remove data:image/xxx;base64, prefix
+                const base64 = result.split(',')[1];
+                resolve(base64);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+
+        const text = await geminiService.analyzeImage(base64Data, file.type);
+        if (text) {
+          setImageContext(text);
+        }
+    } catch (err) {
+        console.error("Image analysis failed", err);
+        setError("Failed to analyze image. Please try again.");
+    } finally {
+        setIsProcessingImage(false);
+        if (fileInputRef.current) fileInputRef.current.value = ''; // Reset input
+    }
+  };
+
   // --- Gemini Live Connection ---
   const connectToGemini = async () => {
     try {
@@ -108,18 +149,26 @@ const App: React.FC = () => {
 
       // 1. Setup Audio Contexts
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      
+      // Initialize Input Context
       inputAudioContextRef.current = new AudioContextClass({ sampleRate: 16000 });
+      // CRITICAL: Resume context if suspended (browser autoplay policy)
+      if (inputAudioContextRef.current.state === 'suspended') {
+        await inputAudioContextRef.current.resume();
+      }
+
+      // Initialize Output Context
       outputAudioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
       nextStartTimeRef.current = 0;
 
-      // 2. Initialize Client
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 2. Connect via Service
       const currentPersona = PERSONAS[currentPersonaId];
 
-      const config = {
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        callbacks: {
-          onopen: async () => {
+      await geminiService.connectLive({
+        persona: currentPersona,
+        imageContext: imageContext,
+        tools: [changeSceneFunction, changePersonaFunction],
+        onOpen: async () => {
             console.log("Session opened");
             setIsConnected(true);
             
@@ -138,12 +187,7 @@ const App: React.FC = () => {
                 if (!isMicOn) return; 
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcmBlob = createBlob(inputData);
-                
-                if (sessionPromiseRef.current) {
-                  sessionPromiseRef.current.then(session => {
-                    session.sendRealtimeInput({ media: pcmBlob });
-                  });
-                }
+                geminiService.sendAudio(pcmBlob);
               };
 
               source.connect(processor);
@@ -152,8 +196,8 @@ const App: React.FC = () => {
               console.error("Mic error:", err);
               setError("Microphone access failed.");
             }
-          },
-          onmessage: async (message: LiveServerMessage) => {
+        },
+        onMessage: async (message: LiveServerMessage) => {
              // Handle Transcript
              if (message.serverContent?.inputTranscription?.text) {
                  transcriptLogRef.current += `User: ${message.serverContent.inputTranscription.text}\n`;
@@ -169,33 +213,25 @@ const App: React.FC = () => {
                         const newSceneId = (fc.args as any).sceneId;
                         if (SCENES[newSceneId]) {
                             setCurrentSceneId(newSceneId);
-                            if (sessionPromiseRef.current) {
-                                sessionPromiseRef.current.then(session => {
-                                    session.sendToolResponse({
-                                        functionResponses: {
-                                            id: fc.id,
-                                            name: fc.name,
-                                            response: { result: `Scene changed to ${newSceneId}` }
-                                        }
-                                    });
-                                });
-                            }
+                            geminiService.sendToolResponse({
+                                functionResponses: {
+                                    id: fc.id,
+                                    name: fc.name,
+                                    response: { result: `Scene changed to ${newSceneId}` }
+                                }
+                            });
                         }
                     } else if (fc.name === 'changePersona') {
                         const newPersonaId = (fc.args as any).personaId;
                         if (PERSONAS[newPersonaId]) {
                             setCurrentPersonaId(newPersonaId);
-                            if (sessionPromiseRef.current) {
-                                sessionPromiseRef.current.then(session => {
-                                    session.sendToolResponse({
-                                        functionResponses: {
-                                            id: fc.id,
-                                            name: fc.name,
-                                            response: { result: `Persona changed to ${newPersonaId}` }
-                                        }
-                                    });
-                                });
-                            }
+                            geminiService.sendToolResponse({
+                                functionResponses: {
+                                    id: fc.id,
+                                    name: fc.name,
+                                    response: { result: `Persona changed to ${newPersonaId}` }
+                                }
+                            });
                         }
                     }
                 }
@@ -233,44 +269,23 @@ const App: React.FC = () => {
 
              // Handle Interruption
              if (message.serverContent?.interrupted) {
-                 sourcesRef.current.forEach(s => s.stop());
+                 sourcesRef.current.forEach(s => {
+                    try { s.stop(); } catch(e) {}
+                 });
                  sourcesRef.current.clear();
                  nextStartTimeRef.current = 0;
              }
-          },
-          onclose: () => {
+        },
+        onClose: () => {
             console.log("Session closed");
             setIsConnected(false);
-          },
-          onerror: (e) => {
+        },
+        onError: (e) => {
             console.error("Session error", e);
             setError("Connection error. Please refresh.");
             setIsConnected(false);
-          }
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          inputAudioTranscription: {}, // Enable user transcription
-          outputAudioTranscription: {}, // Enable model transcription
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: currentPersona.voiceName } },
-          },
-          systemInstruction: `You are DeepSink, an immersive English native partner. 
-          Current Persona: ${currentPersona.name} (${currentPersona.role}). 
-          Description: ${currentPersona.description}.
-          
-          CORE RULES:
-          1. IMMERSION: Behave exactly like your persona. Use their slang, tone, and attitude.
-          2. CORRECTION: If the user makes a mistake, gently repeat the correct version using the "shadowing" technique (say the correct phrase clearly for them to repeat), then continue the conversation naturally.
-          3. SCENE CONTROL: Listen to the user. If they say "I want to order coffee" or "Let's go to the beach", use the 'changeScene' tool immediately to switch the environment.
-          4. PERSONA CONTROL: If user asks to talk to someone else (e.g., "Can I talk to Ross?"), use 'changePersona'.
-          
-          Keep responses concise (1-3 sentences) to encourage conversation.`,
-          tools: [{ functionDeclarations: [changeSceneFunction, changePersonaFunction] }]
         }
-      };
-
-      sessionPromiseRef.current = ai.live.connect(config);
+      });
 
     } catch (e) {
       console.error(e);
@@ -278,80 +293,35 @@ const App: React.FC = () => {
     }
   };
 
-  const generateReport = async () => {
-      if (!transcriptLogRef.current || transcriptLogRef.current.length < 50) {
-          // Fallback if not enough data
-          setScoreData({
-            total: 80,
-            fluency: 75,
-            vocabulary: 80,
-            nativeLike: 70,
-            comment: "Keep practicing! The session was a bit too short for a full analysis, but you're doing great!"
-          });
-          return;
-      }
-
-      try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-          const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: `Analyze the following transcript between an English learner (User) and an AI tutor (DeepSink).
-              
-              TRANSCRIPT:
-              ${transcriptLogRef.current}
-              
-              TASK:
-              Act as an encouraging but professional IELTS/TOEFL examiner. Evaluate the User's performance.
-              
-              OUTPUT SCHEMA:
-              Return a JSON object with:
-              - total: number (0-100 overall score)
-              - fluency: number (0-100, flow and speed)
-              - vocabulary: number (0-100, word choice and variety)
-              - nativeLike: number (0-100, idiomatic usage and vibe)
-              - comment: string (Maximum 2 sentences. A specific, warm, and constructive observation about their speaking)`,
-              config: {
-                  responseMimeType: "application/json",
-                  responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                          total: { type: Type.NUMBER },
-                          fluency: { type: Type.NUMBER },
-                          vocabulary: { type: Type.NUMBER },
-                          nativeLike: { type: Type.NUMBER },
-                          comment: { type: Type.STRING },
-                      },
-                      required: ["total", "fluency", "vocabulary", "nativeLike", "comment"]
-                  }
-              }
-          });
-          
-          if (response.text) {
-              const data = JSON.parse(response.text);
-              setScoreData(data);
-          }
-      } catch (e) {
-          console.error("Analysis failed", e);
-          setScoreData({
-             total: 0, fluency: 0, vocabulary: 0, nativeLike: 0,
-             comment: "Could not generate analysis due to a network error."
-          });
-      }
-  };
-
   const handleDisconnect = async () => {
       // 1. Close Session
-      if (sessionPromiseRef.current) {
-          sessionPromiseRef.current.then(s => s.close());
-      }
+      await geminiService.disconnect();
       stopAudio();
       setIsConnected(false);
 
       // 2. Trigger Analysis Flow
       setIsAnalyzing(true);
       
-      // 3. Generate Report via Gemini Flash
-      await generateReport();
+      // 3. Generate Report via Service
+      if (!transcriptLogRef.current || transcriptLogRef.current.length < 50) {
+           setScoreData({
+            total: 80,
+            fluency: 75,
+            vocabulary: 80,
+            nativeLike: 70,
+            comment: "Keep practicing! The session was a bit too short for a full analysis, but you're doing great!"
+          });
+      } else {
+          const data = await geminiService.generateReport(transcriptLogRef.current);
+          if (data) {
+             setScoreData(data);
+          } else {
+             setScoreData({
+                 total: 0, fluency: 0, vocabulary: 0, nativeLike: 0,
+                 comment: "Could not generate analysis due to a network error."
+             });
+          }
+      }
       
       setIsAnalyzing(false);
       setShowFireworks(true);
@@ -475,6 +445,26 @@ const App: React.FC = () => {
                     </p>
                     
                     <FAQSection />
+
+                    {/* Image Context Preview */}
+                    {imageContext && (
+                         <div className="mx-auto max-w-md bg-indigo-500/20 border border-indigo-500/50 rounded-xl p-4 flex items-start gap-4 text-left animate-fade-in backdrop-blur-sm">
+                             <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
+                                <svg className="w-6 h-6 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                             </div>
+                             <div className="flex-1 min-w-0">
+                                 <h3 className="text-sm font-bold text-indigo-200 mb-1">Image Scenario Active</h3>
+                                 <p className="text-xs text-indigo-100/70 line-clamp-2">{imageContext}</p>
+                             </div>
+                             <button onClick={() => setImageContext(null)} className="text-gray-400 hover:text-white p-1">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                             </button>
+                         </div>
+                    )}
                  </div>
             )}
 
@@ -503,7 +493,29 @@ const App: React.FC = () => {
         {/* Footer Controls */}
         <div className="flex justify-center items-center gap-6 pb-8 shrink-0">
             {!isConnected && !isAnalyzing ? (
-                <div className="animate-float">
+                <div className="flex items-center gap-4 animate-float">
+                  <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={handleFileSelect} 
+                  />
+                  <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isProcessingImage}
+                      className={`p-4 bg-white/10 hover:bg-white/20 text-indigo-200 border border-white/10 rounded-full transition-all backdrop-blur-md ${isProcessingImage ? 'opacity-50 cursor-wait' : ''}`}
+                      title="Analyze Image Context"
+                  >
+                      {isProcessingImage ? (
+                          <div className="w-6 h-6 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M7 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4H7zm12 14H5V5h11v5h5v9zM17 7h-5v5h5V7zM7 17h10v-2H7v2z"/>
+                          </svg>
+                      )}
+                  </button>
+
                   <button 
                       onClick={connectToGemini}
                       className="group relative px-8 py-4 bg-white text-black font-bold rounded-full hover:scale-105 transition-all shadow-[0_0_40px_-10px_rgba(255,255,255,0.6)]"
