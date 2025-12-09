@@ -122,6 +122,7 @@ CORE RULES:
           parts: [{ inlineData: { mimeType, data: base64Data } }, { text: "Analyze this image for conversational context." }]
         }
       });
+      console.log( response.text);
       return response.text;
     } catch (e) {
       throw e;

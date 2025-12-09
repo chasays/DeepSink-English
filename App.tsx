@@ -43,9 +43,11 @@ const App: React.FC = () => {
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   
   const [imageContext, setImageContext] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   
   const [searchTopic, setSearchTopic] = useState("");
+  const [activeSearchTopic, setActiveSearchTopic] = useState("");
   const [searchSummary, setSearchSummary] = useState<string | null>(null);
   const [searchLinks, setSearchLinks] = useState<{title: string, uri: string}[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -105,6 +107,7 @@ const App: React.FC = () => {
         const result = await geminiService.searchGrounding(searchTopic);
         setSearchSummary(result.summary);
         setSearchLinks(result.links);
+        setActiveSearchTopic(searchTopic);
     } catch (err) {
         setError("Failed to reach Google Search. Try simpler keywords.");
     } finally {
@@ -117,11 +120,13 @@ const App: React.FC = () => {
     if (!file) return;
     setIsProcessingImage(true);
     try {
-        const base64Data = await new Promise<string>((resolve) => {
+        const readerResult = await new Promise<string>((resolve) => {
             const reader = new FileReader();
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onload = () => resolve(reader.result as string);
             reader.readAsDataURL(file);
         });
+        setImagePreviewUrl(readerResult);
+        const base64Data = readerResult.split(',')[1];
         const text = await geminiService.analyzeImage(base64Data, file.type);
         if (text) setImageContext(text);
     } catch (err) {
@@ -129,6 +134,17 @@ const App: React.FC = () => {
     } finally {
         setIsProcessingImage(false);
     }
+  };
+
+  const clearImageContext = () => {
+    setImageContext(null);
+    setImagePreviewUrl(null);
+  };
+
+  const clearSearchContext = () => {
+    setSearchSummary(null);
+    setActiveSearchTopic("");
+    setSearchLinks([]);
   };
 
   const connectToGemini = async () => {
@@ -336,7 +352,7 @@ const App: React.FC = () => {
                                 disabled={isSearching || !searchTopic}
                                 className={`px-6 py-3 bg-indigo-500 rounded-xl font-bold text-xs transition-all ${isSearching ? 'opacity-50' : 'hover:bg-indigo-400 active:scale-95'}`}
                             >
-                                {isSearching ? 'Searching...' : 'Search News'}
+                                {isSearching ? 'Searching...' : activeSearchTopic ? 'Update Topic' : 'Search News'}
                             </button>
                         </div>
                         
@@ -368,7 +384,32 @@ const App: React.FC = () => {
             )}
         </div>
 
-        <div className="flex justify-center items-center pb-8 gap-4">
+        <div className="flex flex-col items-center pb-8 gap-4">
+            {!isConnected && (activeSearchTopic || imagePreviewUrl) && (
+              <div className="flex items-center gap-3 animate-slide-up mb-2">
+                {activeSearchTopic && (
+                  <div className="flex items-center gap-2 bg-indigo-500/20 border border-indigo-500/30 rounded-full pl-3 pr-1 py-1">
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase truncate max-w-[120px]">Topic: {activeSearchTopic}</span>
+                    <button onClick={clearSearchContext} className="p-1 hover:bg-white/10 rounded-full text-indigo-300">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                )}
+                {imagePreviewUrl && (
+                  <div className="relative group">
+                    <img src={imagePreviewUrl} className="w-8 h-8 rounded-lg object-cover border border-white/20" />
+                    <button 
+                      onClick={clearImageContext} 
+                      className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 rounded-full text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                )}
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest ml-1">Context Applied</span>
+              </div>
+            )}
+
             {!isConnected ? (
               <div className="flex items-center gap-4">
                 <input 
@@ -381,7 +422,7 @@ const App: React.FC = () => {
                 <button 
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isProcessingImage}
-                    className={`p-5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-full transition-all ${isProcessingImage ? 'opacity-50' : ''}`}
+                    className={`p-5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-full transition-all ${isProcessingImage ? 'opacity-50' : ''} ${imagePreviewUrl ? 'ring-2 ring-indigo-500 border-indigo-500' : ''}`}
                     title="Add Image Context"
                 >
                     <svg className="w-6 h-6 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -396,7 +437,7 @@ const App: React.FC = () => {
                 </button>
               </div>
             ) : (
-                <>
+                <div className="flex items-center gap-4">
                     <button 
                         onClick={() => setIsMicOn(!isMicOn)} 
                         className={`p-5 rounded-full backdrop-blur-md border transition-all ${isMicOn ? 'bg-white/10' : 'bg-red-500/20 border-red-500'}`}
@@ -413,7 +454,7 @@ const App: React.FC = () => {
                       )}
                     </button>
                     <button onClick={handleDisconnect} className="px-10 py-5 bg-red-500 text-white font-bold rounded-full">End Session</button>
-                </>
+                </div>
             )}
         </div>
       </div>
