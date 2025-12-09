@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, Blob } from "@google/genai";
 import { SCENES, PERSONAS } from '../constants';
 import { PersonaId, SceneId, Persona, SavedSession } from '../types';
@@ -10,41 +11,33 @@ export interface LiveSessionConfig {
   onError: (error: any) => void;
   tools?: any[];
   imageContext?: string | null;
+  searchContext?: string | null;
 }
 
 export class GeminiService {
   private client: GoogleGenAI;
   private session: Promise<any> | null = null;
-  private apiKey: string;
 
   constructor() {
-    // Ensure API Key is available
-    this.apiKey = process.env.API_KEY || '';
-    if (!this.apiKey) {
-      console.error("API_KEY is missing from environment variables.");
-    }
-    this.client = new GoogleGenAI({ apiKey: this.apiKey });
+    // Initializing Gemini API directly with environment variable.
+    this.client = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
-  /**
-   * Connects to the Gemini Live API with the specified configuration.
-   */
   connectLive(config: LiveSessionConfig): Promise<any> {
-    const { persona, onOpen, onMessage, onClose, onError, tools, imageContext } = config;
+    const { persona, onOpen, onMessage, onClose, onError, tools, imageContext, searchContext } = config;
 
     const systemInstruction = `You are DeepSink, an immersive English native partner. 
 Current Persona: ${persona.name} (${persona.role}). 
 Description: ${persona.description}.
 
-${imageContext ? `\n\n[CONTEXT UPDATE: The user has uploaded an image for this session. \nImage Analysis: ${imageContext}\n\nIMPORTANT: Start the conversation by discussing this image. Ask the user what they think about it.]` : ''}
+${imageContext ? `\n[IMAGE CONTEXT: The user uploaded an image. Description: ${imageContext}. Start by discussing this image.]` : ''}
+${searchContext ? `\n[INTERNET CONTEXT: Here is grounded search data about the current topic: ${searchContext}. Use this to discuss real-world facts and recent news during the conversation.]` : ''}
 
 CORE RULES:
-1. IMMERSION: Behave exactly like your persona. Use their slang, tone, and attitude.
-2. CORRECTION: If the user makes a mistake, gently repeat the correct version using the "shadowing" technique (say the correct phrase clearly for them to repeat), then continue the conversation naturally.
-3. SCENE CONTROL: Listen to the user. If they say "I want to order coffee" or "Let's go to the beach", use the 'changeScene' tool immediately to switch the environment.
-4. PERSONA CONTROL: If user asks to talk to someone else (e.g., "Can I talk to Ross?"), use 'changePersona'.
-
-Keep responses concise (1-3 sentences) to encourage conversation.`;
+1. IMMERSION: Behave exactly like your persona.
+2. CORRECTION: Use the "shadowing" technique for grammar/fluency slips.
+3. SCENE/PERSONA: Use tools if the user asks to switch environments or talk to someone else.
+4. KNOWLEDGE: Use the provided search context to stay factually accurate about trending topics.`;
 
     try {
       this.session = this.client.live.connect({
@@ -66,7 +59,6 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
           tools: tools ? [{ functionDeclarations: tools }] : undefined
         }
       });
-      console.log("ConnetLive: OK", this.session);
       return this.session;
     } catch (e) {
       console.error("Failed to initiate Live connection:", e);
@@ -74,18 +66,12 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
     }
   }
 
-  /**
-   * Sends real-time audio input to the active session.
-   */
   sendAudio(data: Blob) {
     if (this.session) {
       this.session.then(s => s.sendRealtimeInput({ media: data }));
     }
   }
 
-  /**
-   * Sends a tool response back to the session.
-   */
   async sendToolResponse(toolResponse: any) {
     if (this.session) {
       const s = await this.session;
@@ -93,9 +79,6 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
     }
   }
 
-  /**
-   * Closes the active session.
-   */
   async disconnect() {
     if (this.session) {
       const s = await this.session;
@@ -104,57 +87,52 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
     }
   }
 
-  /**
-   * Analyzes an uploaded image using gemini-3-pro-preview.
-   */
-  async analyzeImage(base64Data: string, mimeType: string): Promise<string | undefined> {
+  async searchGrounding(query: string): Promise<{summary: string, links: {title: string, uri: string}[]}> {
     try {
-      const response = await this.client.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType,
-                data: base64Data
-              }
-            },
-            {
-              text: "Analyze this image for an English learner. Describe the setting, objects, and people (if any). Then, list 3 interesting questions or topics we could discuss about this image to practice English. Keep the output concise and conversational."
-            }
-          ]
-        }
+      const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Research and summarize key conversational points about: ${query}. Focus on current news, trending aspects, and interesting facts that can serve as conversation starters. Keep the summary under 150 words.`,
+        config: {
+          tools: [{googleSearch: {}}],
+        },
       });
-      console.log("analyzeImg:", response.text);
-      return response.text;
+
+      const text = response.text || "No summary available.";
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      // Fix: Title property missing map result by providing a fallback and explicitly handling the optional type.
+      const links = chunks.map(c => c.web).filter((web): web is { title?: string; uri: string } => !!web).map(web => ({
+        title: web.title || "Reference Source",
+        uri: web.uri
+      }));
+
+      return { summary: text, links };
     } catch (e) {
-      console.error("Image analysis failed:", e);
+      console.error("Search grounding failed:", e);
       throw e;
     }
   }
 
-  /**
-   * Generates a speaking performance report.
-   */
+  async analyzeImage(base64Data: string, mimeType: string): Promise<string | undefined> {
+    try {
+      // Fix: Used the correct multimodal model 'gemini-2.5-flash'.
+      const response = await this.client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+          parts: [{ inlineData: { mimeType, data: base64Data } }, { text: "Analyze this image for conversational context." }]
+        }
+      });
+      return response.text;
+    } catch (e) {
+      throw e;
+    }
+  }
+
   async generateReport(transcript: string): Promise<any> {
     try {
       const response = await this.client.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Analyze the following transcript between an English learner (User) and an AI tutor (DeepSink).
-        
-        TRANSCRIPT:
-        ${transcript}
-        
-        TASK:
-        Act as an encouraging but professional IELTS/TOEFL examiner. Evaluate the User's performance.
-        
-        OUTPUT SCHEMA:
-        Return a JSON object with:
-        - total: number (0-100 overall score)
-        - fluency: number (0-100, flow and speed)
-        - vocabulary: number (0-100, word choice and variety)
-        - nativeLike: number (0-100, idiomatic usage and vibe)
-        - comment: string (Maximum 2 sentences. A specific, warm, and constructive observation about their speaking)`,
+        contents: `Evaluate speaking performance based on this transcript:\n${transcript}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -170,45 +148,18 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
           }
         }
       });
-
-      if (response.text) {
-        console.log("GenerateReport:", response.text);
-        return JSON.parse(response.text);
-      }
-      return null;
+      return response.text ? JSON.parse(response.text) : null;
     } catch (e) {
-      console.error("Report generation failed:", e);
       return null;
     }
   }
 
-  /**
-   * Generates an overall progress report based on multiple saved sessions.
-   */
   async generateGlobalReport(sessions: SavedSession[]): Promise<any> {
     try {
-      const sessionTranscripts = sessions.map((s, i) => {
-        const text = s.messages.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
-        return `SESSION ${i + 1} (${new Date(s.date).toLocaleDateString()}):\n${text}`;
-      }).join('\n\n---\n\n');
-
+      const historyText = sessions.map(s => s.messages.map(m => m.text).join(' ')).join('\n');
       const response = await this.client.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Analyze the user's English progress across these historical sessions. 
-        
-        SESSIONS:
-        ${sessionTranscripts}
-        
-        TASK:
-        Act as an English language coach. Summarize the user's current level, strengths, and areas for improvement based on these interactions. Provide overall progress scores.
-        
-        OUTPUT SCHEMA:
-        Return a JSON object with:
-        - total: number (0-100 overall current proficiency score)
-        - fluency: number (0-100 average progress in fluency)
-        - vocabulary: number (0-100 average vocabulary richness)
-        - nativeLike: number (0-100 progress in idiomatic naturalness)
-        - comment: string (A comprehensive 3-4 sentence progress summary and next-step advice)`,
+        contents: `Summarize progress report based on these sessions:\n${historyText}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -224,13 +175,8 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
           }
         }
       });
-
-      if (response.text) {
-        return JSON.parse(response.text);
-      }
-      return null;
+      return response.text ? JSON.parse(response.text) : null;
     } catch (e) {
-      console.error("Global report generation failed:", e);
       return null;
     }
   }
