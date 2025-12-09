@@ -1,6 +1,6 @@
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, Blob } from "@google/genai";
 import { SCENES, PERSONAS } from '../constants';
-import { PersonaId, SceneId, Persona } from '../types';
+import { PersonaId, SceneId, Persona, SavedSession } from '../types';
 
 export interface LiveSessionConfig {
   persona: Persona;
@@ -178,6 +178,59 @@ Keep responses concise (1-3 sentences) to encourage conversation.`;
       return null;
     } catch (e) {
       console.error("Report generation failed:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Generates an overall progress report based on multiple saved sessions.
+   */
+  async generateGlobalReport(sessions: SavedSession[]): Promise<any> {
+    try {
+      const sessionTranscripts = sessions.map((s, i) => {
+        const text = s.messages.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
+        return `SESSION ${i + 1} (${new Date(s.date).toLocaleDateString()}):\n${text}`;
+      }).join('\n\n---\n\n');
+
+      const response = await this.client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Analyze the user's English progress across these historical sessions. 
+        
+        SESSIONS:
+        ${sessionTranscripts}
+        
+        TASK:
+        Act as an English language coach. Summarize the user's current level, strengths, and areas for improvement based on these interactions. Provide overall progress scores.
+        
+        OUTPUT SCHEMA:
+        Return a JSON object with:
+        - total: number (0-100 overall current proficiency score)
+        - fluency: number (0-100 average progress in fluency)
+        - vocabulary: number (0-100 average vocabulary richness)
+        - nativeLike: number (0-100 progress in idiomatic naturalness)
+        - comment: string (A comprehensive 3-4 sentence progress summary and next-step advice)`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              total: { type: Type.NUMBER },
+              fluency: { type: Type.NUMBER },
+              vocabulary: { type: Type.NUMBER },
+              nativeLike: { type: Type.NUMBER },
+              comment: { type: Type.STRING },
+            },
+            required: ["total", "fluency", "vocabulary", "nativeLike", "comment"]
+          }
+        }
+      });
+
+      if (response.text) {
+        return JSON.parse(response.text);
+      }
+      return null;
+    } catch (e) {
+      console.error("Global report generation failed:", e);
       return null;
     }
   }

@@ -74,9 +74,11 @@ const App: React.FC = () => {
 
   // Session Report State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSummarizingHistory, setIsSummarizingHistory] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
   const [scoreData, setScoreData] = useState<ScoreData | null>(null);
+  const [isGlobalReport, setIsGlobalReport] = useState(false);
   
   // Refs for Audio
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -521,13 +523,32 @@ const App: React.FC = () => {
 
       setIsAnalyzing(false);
       setShowFireworks(true);
+      setIsGlobalReport(false);
       setShowResult(true);
+  };
+
+  const handleSummarizeHistory = async () => {
+      if (savedSessions.length === 0) return;
+      setIsSummarizingHistory(true);
+      
+      const report = await geminiService.generateGlobalReport(savedSessions);
+      if (report) {
+          setScoreData(report);
+          setIsGlobalReport(true);
+          setShowResult(true);
+          setIsHistoryOpen(false); // Close history to show report
+      } else {
+          setError("Failed to generate overall progress report.");
+      }
+      
+      setIsSummarizingHistory(false);
   };
 
   const handleCloseResult = () => {
       setShowResult(false);
       setShowFireworks(false);
       setScoreData(null);
+      setIsGlobalReport(false);
   };
 
   const handleDownloadTranscript = () => {
@@ -587,7 +608,14 @@ const App: React.FC = () => {
       {showResult && scoreData && <SessionResult data={scoreData} onClose={handleCloseResult} onDownloadTranscript={handleDownloadTranscript} />}
 
       {/* 4. History Drawer Layer */}
-      <HistoryDrawer isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} sessions={savedSessions} onClear={clearHistory} />
+      <HistoryDrawer 
+        isOpen={isHistoryOpen} 
+        onClose={() => setIsHistoryOpen(false)} 
+        sessions={savedSessions} 
+        onClear={clearHistory} 
+        onSummarize={handleSummarizeHistory}
+        isSummarizing={isSummarizingHistory}
+      />
 
       {/* 5. Transcript Overlay Layer */}
       {showTranscript && (
