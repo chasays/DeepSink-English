@@ -91,62 +91,62 @@ export const SCENES: Record<SceneId, Scene> = {
     name: 'Rainy Starbucks',
     type: 'shader',
     shaderCode: RAIN_SHADER,
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/cafe_ambience.ogg' 
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg'
   },
   [SceneId.NY_STREET]: {
     id: SceneId.NY_STREET,
     name: 'Manhattan Sunset',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/122/1920/1080', // City
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/city_street_traffic.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/subway_station_nyc.ogg'
   },
   [SceneId.BEACH]: {
     id: SceneId.BEACH,
     name: 'Cali Beach',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/1043/1920/1080',
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/nature/sea_waves.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/summer_beach_parking_lot.ogg'
   },
   [SceneId.PUB]: {
     id: SceneId.PUB,
     name: 'British Pub',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/431/1920/1080', // Dark interior
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/crowds/bar_crowd.ogg' 
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/retail_background_noises.ogg'
   },
   [SceneId.OFFICE]: {
     id: SceneId.OFFICE,
     name: 'Tech Office',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/1/1920/1080',
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/office_ambience.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/ambient_hum_air_conditioner.ogg'
   },
   [SceneId.GYM]: {
     id: SceneId.GYM,
     name: 'High-end Gym',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/352/1920/1080',
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/warehouse_room_tone.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/factory_background.ogg'
   },
   [SceneId.MARKET]: {
     id: SceneId.MARKET,
     name: 'Bustling Market',
     type: 'image',
     imageUrl: 'https://picsum.photos/seed/market123/1920/1080', // Seeded random for consistent "market" feel
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/crowds/outdoor_market.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/small_outdoor_marketplace.ogg'
   },
   [SceneId.LIBRARY]: {
     id: SceneId.LIBRARY,
     name: 'Quiet Library',
     type: 'image',
     imageUrl: 'https://picsum.photos/id/192/1920/1080', // Indoor/Architectural
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/quiet_room_tone.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/outside_night.ogg'
   },
   [SceneId.FUTURISTIC]: {
     id: SceneId.FUTURISTIC,
     name: 'Neo Tokyo',
     type: 'image',
     imageUrl: 'https://picsum.photos/seed/future99/1920/1080',
-    ambientSoundUrl: 'https://actions.google.com/sounds/v1/sci_fi/space_drone.ogg'
+    ambientSoundUrl: 'https://actions.google.com/sounds/v1/ambiences/swoosh.ogg'
   }
 };
