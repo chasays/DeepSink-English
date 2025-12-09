@@ -26,7 +26,7 @@ vec3 Rain(vec2 uv, float t) {
     st = fract(st)-0.5;
     t += fract(n*123.2) * 6.283;
     float d = length(st - vec2(0., sin(t+sin(t+sin(t)*0.55))*0.4*a.y));
-    float m = smoothstep(0.15, 0.05, d);
+    float m = smoothstep(0.008, 0.002, d);
     return vec3(m);
 }
 

@@ -291,7 +291,7 @@ const App: React.FC = () => {
     <div className="relative w-full h-screen overflow-hidden text-white bg-black">
       <ShaderBackground scene={currentScene} />
       {showFireworks && <Fireworks />}
-      {showResult && scoreData && <SessionResult data={scoreData} onClose={() => setShowResult(false)} onDownloadTranscript={()=>{}} />}
+      {showResult && scoreData && <SessionResult data={scoreData} onClose={() => {setShowResult(false); setShowFireworks(false);} } onDownloadTranscript={()=>{}} />}
       
       <HistoryDrawer isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} sessions={savedSessions} onClear={()=>setSavedSessions([])} onSummarize={()=>{}} isSummarizing={false} />
 
