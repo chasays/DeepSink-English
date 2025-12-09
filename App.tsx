@@ -57,7 +57,6 @@ const App: React.FC = () => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSummarizingHistory, setIsSummarizingHistory] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
   const [scoreData, setScoreData] = useState<ScoreData | null>(null);
@@ -110,6 +109,25 @@ const App: React.FC = () => {
         setError("Failed to reach Google Search. Try simpler keywords.");
     } finally {
         setIsSearching(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingImage(true);
+    try {
+        const base64Data = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.readAsDataURL(file);
+        });
+        const text = await geminiService.analyzeImage(base64Data, file.type);
+        if (text) setImageContext(text);
+    } catch (err) {
+        setError("Failed to process image.");
+    } finally {
+        setIsProcessingImage(false);
     }
   };
 
@@ -284,7 +302,15 @@ const App: React.FC = () => {
                 )}
             </div>
             <div className="flex gap-4">
-                <button onClick={() => setIsHistoryOpen(true)} className="bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-3">History</button>
+                <button 
+                  onClick={() => setIsHistoryOpen(true)} 
+                  className="bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-3 flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="hidden md:inline">History</span>
+                </button>
                 <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-xs font-mono">{isConnected ? 'LIVE' : 'OFFLINE'}</div>
             </div>
         </div>
@@ -310,7 +336,7 @@ const App: React.FC = () => {
                                 disabled={isSearching || !searchTopic}
                                 className={`px-6 py-3 bg-indigo-500 rounded-xl font-bold text-xs transition-all ${isSearching ? 'opacity-50' : 'hover:bg-indigo-400 active:scale-95'}`}
                             >
-                                {isSearching ? '研究中...' : 'Search News'}
+                                {isSearching ? 'Searching...' : 'Search News'}
                             </button>
                         </div>
                         
@@ -344,10 +370,48 @@ const App: React.FC = () => {
 
         <div className="flex justify-center items-center pb-8 gap-4">
             {!isConnected ? (
-                <button onClick={connectToGemini} className="px-10 py-5 bg-white text-black font-black rounded-full hover:scale-105 transition-all text-lg shadow-2xl">Start Speaking</button>
+              <div className="flex items-center gap-4">
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept="image/*" 
+                  onChange={handleFileSelect} 
+                />
+                <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessingImage}
+                    className={`p-5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-full transition-all ${isProcessingImage ? 'opacity-50' : ''}`}
+                    title="Add Image Context"
+                >
+                    <svg className="w-6 h-6 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </button>
+                <button 
+                  onClick={connectToGemini} 
+                  className="px-10 py-5 bg-white text-black font-black rounded-full hover:scale-105 transition-all text-lg shadow-2xl"
+                >
+                  Start Speaking
+                </button>
+              </div>
             ) : (
                 <>
-                    <button onClick={() => setIsMicOn(!isMicOn)} className={`p-5 rounded-full backdrop-blur-md border ${isMicOn ? 'bg-white/10' : 'bg-red-500/20 border-red-500'}`}>{isMicOn ? 'ON' : 'OFF'}</button>
+                    <button 
+                        onClick={() => setIsMicOn(!isMicOn)} 
+                        className={`p-5 rounded-full backdrop-blur-md border transition-all ${isMicOn ? 'bg-white/10' : 'bg-red-500/20 border-red-500'}`}
+                    >
+                      {isMicOn ? (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" stroke="#F87171" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" stroke="#F87171" />
+                        </svg>
+                      )}
+                    </button>
                     <button onClick={handleDisconnect} className="px-10 py-5 bg-red-500 text-white font-bold rounded-full">End Session</button>
                 </>
             )}
